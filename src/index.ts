@@ -35,7 +35,7 @@ app.get("/", (_, res) => {
   if (!isInProduction) {
     return res.redirect("/playground");
   }
-  res.end();
+  res.send("Cannot GET /");
 });
 
 // Defining the graphql server as middleware.
