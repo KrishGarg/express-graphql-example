@@ -2,6 +2,7 @@ import express from "express";
 import { graphqlHTTP } from "express-graphql";
 import expressPlayground from "graphql-playground-middleware-express";
 import { makeExecutableSchema } from "@graphql-tools/schema";
+import cors from "cors";
 
 // Importing resolvers and type definitions
 import { Context, resolvers } from "./resolver";
@@ -21,6 +22,8 @@ if (!isInProduction) {
 }
 
 const app = express();
+
+app.use(cors());
 
 const PORT = process.env.PORT ?? 4000;
 
