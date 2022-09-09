@@ -1,59 +1,69 @@
+import { ApolloServer } from "apollo-server-express";
+import {
+  ApolloServerPluginDrainHttpServer,
+  ApolloServerPluginLandingPageGraphQLPlayground,
+} from "apollo-server-core";
 import express from "express";
-import { graphqlHTTP } from "express-graphql";
-import expressPlayground from "graphql-playground-middleware-express";
+import http from "http";
+
 import { makeExecutableSchema } from "@graphql-tools/schema";
+import { WebSocketServer } from "ws";
+import { useServer } from "graphql-ws/lib/use/ws";
 
-// Importing resolvers and type definitions
-import { Context, resolvers } from "./resolver";
-import typeDefs from "./typeDefs";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-// Made the check a variable as the check can change from environment to enviroment
-const isInProduction = process.env.NODE_ENV === "production";
+const typeDefs = readFileSync(join(__dirname, "schema.graphql"), "utf8");
+import resolvers from "./resolvers";
 
-// Loading local env variables in development.
-if (!isInProduction) {
-  import("path").then(async ({ resolve }) => {
-    const { config } = await import("dotenv");
-    config({
-      path: resolve(__dirname, ".env.local"),
-    });
+const PORT = process.env.PORT || 4000;
+
+async function startApolloServer() {
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
+
+  const app = express();
+  const httpServer = http.createServer(app);
+
+  const wsServer = new WebSocketServer({
+    server: httpServer,
+    path: "/graphql",
   });
+
+  const serverCleanup = useServer({ schema }, wsServer);
+
+  const server = new ApolloServer({
+    schema,
+    csrfPrevention: true,
+    cache: "bounded",
+    plugins: [
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+      {
+        async serverWillStart() {
+          return {
+            async drainServer() {
+              await serverCleanup.dispose();
+            },
+          };
+        },
+      },
+      ApolloServerPluginLandingPageGraphQLPlayground(),
+    ],
+  });
+
+  await server.start();
+  server.applyMiddleware({
+    app,
+  });
+
+  await new Promise<void>((resolve) =>
+    httpServer.listen({ port: PORT }, resolve)
+  );
+  console.log(
+    `🚀 Server ready at http://localhost:${PORT}${server.graphqlPath}`
+  );
 }
 
-const app = express();
-
-const PORT = process.env.PORT ?? 4000;
-
-// Creating the executable schema
-const schema = makeExecutableSchema<Context>({
-  typeDefs,
-  resolvers,
+startApolloServer().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
-
-// Redirecting to playground in development
-app.get("/", (_, res) => {
-  if (!isInProduction) {
-    return res.redirect("/playground");
-  }
-  return res.send("<pre>Cannot GET /</pre>");
-});
-
-// Defining the graphql server as middleware.
-app.use("/graphql", (req, res) => {
-  return graphqlHTTP({
-    schema,
-    context: { req, res },
-  })(req, res);
-});
-
-// Configuring the graphql-playground as much better UI than Graphiql
-app.get(
-  "/playground",
-  expressPlayground({
-    endpoint: "/graphql/",
-  })
-);
-
-app.listen(PORT, () =>
-  console.log(`Server is running at http://localhost:${PORT}`)
-);
