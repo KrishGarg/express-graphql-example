@@ -27,6 +27,7 @@ const server = new ApolloServer({
   schema,
   csrfPrevention: true,
   cache: "bounded",
+  introspection: true,
   plugins: [
     ApolloServerPluginDrainHttpServer({ httpServer }),
 
