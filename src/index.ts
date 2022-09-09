@@ -1,69 +1,53 @@
 import { ApolloServer } from "apollo-server-express";
-import {
-  ApolloServerPluginDrainHttpServer,
-  ApolloServerPluginLandingPageGraphQLPlayground,
-} from "apollo-server-core";
+import { createServer } from "http";
 import express from "express";
-import http from "http";
-
+import { ApolloServerPluginDrainHttpServer } from "apollo-server-core";
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/lib/use/ws";
-
+import resolvers from "./resolvers";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const typeDefs = readFileSync(join(__dirname, "schema.graphql"), "utf8");
-import resolvers from "./resolvers";
 
-const PORT = process.env.PORT || 4000;
+const schema = makeExecutableSchema({ typeDefs, resolvers });
 
-async function startApolloServer() {
-  const schema = makeExecutableSchema({ typeDefs, resolvers });
+const app = express();
+const httpServer = createServer(app);
 
-  const app = express();
-  const httpServer = http.createServer(app);
+const wsServer = new WebSocketServer({
+  server: httpServer,
+  path: "/graphql",
+});
 
-  const wsServer = new WebSocketServer({
-    server: httpServer,
-    path: "/graphql",
-  });
+const serverCleanup = useServer({ schema }, wsServer);
 
-  const serverCleanup = useServer({ schema }, wsServer);
+const server = new ApolloServer({
+  schema,
+  csrfPrevention: true,
+  cache: "bounded",
+  plugins: [
+    ApolloServerPluginDrainHttpServer({ httpServer }),
 
-  const server = new ApolloServer({
-    schema,
-    csrfPrevention: true,
-    cache: "bounded",
-    plugins: [
-      ApolloServerPluginDrainHttpServer({ httpServer }),
-      {
-        async serverWillStart() {
-          return {
-            async drainServer() {
-              await serverCleanup.dispose();
-            },
-          };
-        },
+    {
+      async serverWillStart() {
+        return {
+          async drainServer() {
+            await serverCleanup.dispose();
+          },
+        };
       },
-      ApolloServerPluginLandingPageGraphQLPlayground(),
-    ],
-  });
+    },
+  ],
+});
 
-  await server.start();
-  server.applyMiddleware({
-    app,
-  });
+server.start().then(() => server.applyMiddleware({ app }));
 
-  await new Promise<void>((resolve) =>
-    httpServer.listen({ port: PORT }, resolve)
-  );
+const PORT = process.env.PORT ?? 4000;
+
+httpServer.listen(PORT, () => {
   console.log(
-    `🚀 Server ready at http://localhost:${PORT}${server.graphqlPath}`
+    `Server is now running on http://localhost:${PORT}${server.graphqlPath}`
   );
-}
-
-startApolloServer().catch((error) => {
-  console.error(error);
-  process.exit(1);
 });
