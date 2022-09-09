@@ -22,6 +22,6 @@ setInterval(() => {
   pubsub.publish("GREETING", {
     greeting: greets[Math.floor(Math.random() * greets.length)],
   });
-}, 2000);
+}, 10000);
 
 export default resolvers;
